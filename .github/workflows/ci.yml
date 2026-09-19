@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - development
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - development
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    name: FAST / Java 25 / Maven
+    # Draft PR activity creates only a skipped job and does not allocate a runner.
+    # On development, skip PR integration commits because the PR head was already checked.
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+        (github.event_name == 'push' &&
+          !(github.ref == 'refs/heads/development' &&
+            (startsWith(github.event.head_commit.message, 'Merge pull request #') ||
+             (github.event.head_commit.committer.username == 'web-flow' &&
+              contains(github.event.head_commit.message, ' (#')))))
+      }}
+    runs-on: [self-hosted, Linux, X64, resource-heavy]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: |
+            pom.xml
+            build/reactor/pom.xml
+            first-party/autocollect/pom.xml
+            first-party/backpack/pom.xml
+            first-party/vault-chests/pom.xml
+            first-party/eggemall2-egg-storage/pom.xml
+
+      - name: Run FAST tests
+        run: mvn -B -f build/reactor/pom.xml clean test
