@@ -1,0 +1,104 @@
+name: Development Build Artifact
+
+on:
+  push:
+    branches:
+      - development
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+concurrency:
+  group: development-build-artifact
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Package development runtime JARs / Java 25
+    runs-on: [self-hosted, Linux, X64, resource-heavy]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout development
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: |
+            pom.xml
+            build/reactor/pom.xml
+            first-party/autocollect/pom.xml
+            first-party/backpack/pom.xml
+            first-party/vault-chests/pom.xml
+            first-party/eggemall2-egg-storage/pom.xml
+
+      - name: Build and test reactor
+        run: mvn -B -f build/reactor/pom.xml clean package
+
+      - name: Collect runtime JARs
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          out='build/development-artifacts'
+          rm -rf "$out"
+          mkdir -p "$out"
+
+          patterns=(
+            'target/storium-*.jar'
+            'first-party/autocollect/target/storium-autocollect-*.jar'
+            'first-party/backpack/target/storium-backpack-*.jar'
+            'first-party/vault-chests/target/storium-vault-chests-*.jar'
+            'first-party/eggemall2-egg-storage/target/storium-eggemall2-egg-storage-*.jar'
+          )
+
+          for pattern in "${patterns[@]}"; do
+            matches=( $pattern )
+            runtime=()
+            for file in "${matches[@]}"; do
+              case "$(basename "$file")" in
+                original-*|*-sources.jar|*-javadoc.jar|*-tests.jar) ;;
+                *) runtime+=("$file") ;;
+              esac
+            done
+
+            if [[ ${#runtime[@]} -ne 1 ]]; then
+              echo "::error::Expected exactly one runtime JAR for $pattern, found ${#runtime[@]}"
+              exit 1
+            fi
+
+            cp "${runtime[0]}" "$out/"
+          done
+
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "ref=${GITHUB_REF}"
+            echo "commit=${GITHUB_SHA}"
+            echo "java=25"
+            echo "paper=26.2"
+            echo "run_id=${GITHUB_RUN_ID}"
+          } > "$out/BUILD_INFO.txt"
+
+          (
+            cd "$out"
+            sha256sum ./*.jar | sed 's#  \./#  #' > SHA256SUMS.txt
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+          ls -lh "$out"
+
+      - name: Upload development build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: storium-development-${{ github.sha }}
+          path: build/development-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
