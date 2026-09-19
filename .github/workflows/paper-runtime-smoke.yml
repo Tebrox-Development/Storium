@@ -1,0 +1,93 @@
+name: Paper Runtime Smoke
+
+on:
+  pull_request:
+    branches:
+      - development
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    paths:
+      - 'pom.xml'
+      - 'build/reactor/pom.xml'
+      - 'first-party/autocollect/**'
+      - 'first-party/backpack/**'
+      - 'first-party/vault-chests/**'
+      - 'first-party/eggemall2-egg-storage/**'
+      - 'src/main/java/**'
+      - 'src/main/resources/**'
+      - 'scripts/ci/paper-runtime-smoke.sh'
+      - '.github/workflows/paper-runtime-smoke.yml'
+  push:
+    branches:
+      - development
+    paths:
+      - 'pom.xml'
+      - 'build/reactor/pom.xml'
+      - 'first-party/autocollect/**'
+      - 'first-party/backpack/**'
+      - 'first-party/vault-chests/**'
+      - 'first-party/eggemall2-egg-storage/**'
+      - 'src/main/java/**'
+      - 'src/main/resources/**'
+      - 'scripts/ci/paper-runtime-smoke.sh'
+      - '.github/workflows/paper-runtime-smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-smoke:
+    name: Paper 26.2 / Java 25 / Plugin Runtime Smoke
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+        (github.event_name == 'push' &&
+          !(github.ref == 'refs/heads/development' &&
+            (startsWith(github.event.head_commit.message, 'Merge pull request #') ||
+             (github.event.head_commit.committer.username == 'web-flow' && contains(github.event.head_commit.message, ' (#')))))
+      }}
+    runs-on: [self-hosted, Linux, X64, resource-heavy]
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: |
+            pom.xml
+            build/reactor/pom.xml
+            first-party/autocollect/pom.xml
+            first-party/backpack/pom.xml
+            first-party/vault-chests/pom.xml
+            first-party/eggemall2-egg-storage/pom.xml
+
+      - name: Build Storium and first-party addons
+        run: mvn -B -f build/reactor/pom.xml clean package -DskipTests
+
+      - name: Resolve runtime plugin dependencies
+        run: |
+          mkdir -p target/runtime-plugins
+          mvn -B org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
+            -Dartifact=com.github.Tebrox-Development:VertexCore:v1.1.0 \
+            -DoutputDirectory=target/runtime-plugins
+          mvn -B org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
+            -Dartifact=world.bentobox:bentobox:3.22.3 \
+            -DoutputDirectory=target/runtime-plugins
+
+      - name: Run pinned Paper 26.2 runtime smoke
+        run: bash scripts/ci/paper-runtime-smoke.sh
