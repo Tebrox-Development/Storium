@@ -1,0 +1,26 @@
+name: Storium
+version: "${project.version}"
+main: de.tebrox.storium.bootstrap.StoriumPlugin
+api-version: "26.2"
+load: STARTUP
+
+authors:
+  - Tebrox
+
+description: >
+  A modular Paper plugin for virtually unlimited island storage,
+  backpacks, auto-collect and more.
+
+website: https://github.com/Tebrox-Development/Storium
+
+dependencies:
+  server:
+    VertexCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+
+    BentoBox:
+      load: BEFORE
+      required: true
+      join-classpath: true
